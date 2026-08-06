@@ -1,46 +1,59 @@
-pragma solidity ^0.4.21;
+// SPDX-License-Identifier: MIT
 
-import "../ReentrancyGuard.sol";
-import "./ReentrancyAttack.sol";
+pragma solidity ^0.8.20;
 
+import {ReentrancyGuard} from "../utils/ReentrancyGuard.sol";
+import {ReentrancyAttack} from "./ReentrancyAttack.sol";
 
 contract ReentrancyMock is ReentrancyGuard {
+    uint256 public counter;
 
-  uint256 public counter;
-
-  function ReentrancyMock() public {
-    counter = 0;
-  }
-
-  function callback() external nonReentrant {
-    count();
-  }
-
-  function countLocalRecursive(uint256 n) public nonReentrant {
-    if (n > 0) {
-      count();
-      countLocalRecursive(n - 1);
+    constructor() {
+        counter = 0;
     }
-  }
 
-  function countThisRecursive(uint256 n) public nonReentrant {
-    bytes4 func = bytes4(keccak256("countThisRecursive(uint256)"));
-    if (n > 0) {
-      count();
-      // solium-disable-next-line security/no-low-level-calls
-      bool result = address(this).call(func, n - 1);
-      require(result == true);
+    function callback() external nonReentrant {
+        _count();
     }
-  }
 
-  function countAndCall(ReentrancyAttack attacker) public nonReentrant {
-    count();
-    bytes4 func = bytes4(keccak256("callback()"));
-    attacker.callSender(func);
-  }
+    function viewCallback() external view nonReentrantView returns (uint256) {
+        return counter;
+    }
 
-  function count() private {
-    counter += 1;
-  }
+    function countLocalRecursive(uint256 n) public nonReentrant {
+        if (n > 0) {
+            _count();
+            countLocalRecursive(n - 1);
+        }
+    }
 
+    function countThisRecursive(uint256 n) public nonReentrant {
+        if (n > 0) {
+            _count();
+            (bool success, ) = address(this).call(abi.encodeCall(this.countThisRecursive, (n - 1)));
+            require(success, "ReentrancyMock: failed call");
+        }
+    }
+
+    function countAndCall(ReentrancyAttack attacker) public nonReentrant {
+        _count();
+        attacker.callSender(abi.encodeCall(this.callback, ()));
+    }
+
+    function countAndCallView(ReentrancyAttack attacker) public nonReentrant {
+        _count();
+        attacker.staticcallSender(abi.encodeCall(this.viewCallback, ()));
+    }
+
+    function _count() private {
+        counter += 1;
+    }
+
+    function guardedCheckEntered() public nonReentrant {
+        require(_reentrancyGuardEntered());
+    }
+
+    function unguardedCheckNotEntered() public view {
+        require(!_reentrancyGuardEntered());
+    }
 }
